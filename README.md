@@ -1,75 +1,188 @@
 # Linux CAN C++ Library
 
-Librería C++ para comunicación CAN en Linux basada en **SocketCAN**.  
-Proporciona una API sencilla para enviar y recibir tramas CAN de forma eficiente, usando sockets RAW y `epoll` para I/O no bloqueante.
+**Linux CAN C++ Library** es una librería ligera y moderna en C++ para comunicarse con buses CAN en Linux usando **SocketCAN**.  
+Proporciona una API sencilla para enviar y recibir tramas CAN de forma eficiente, usando sockets RAW y `epoll` para E/S no bloqueante.
+
+Autor: **Rafael Carbonell Lázaro (racarla96)**
+
+---
 
 ## Características
 
 - Basada en la interfaz nativa **SocketCAN** del kernel Linux.
 - Clase C++ simple (`SocketCANInterface`) para:
-  - Inicializar y cerrar una interfaz CAN (`can0`, `can1`, …).
+  - Inicializar y cerrar una interfaz CAN (`can0`, `can1`, `can_steer_drv`, etc.).
   - Enviar tramas CAN (`write`).
   - Leer múltiples tramas con tiempo de espera configurable (`read`).
-- Uso de **epoll** para una lectura eficiente y no bloqueante.
-- Manejo básico de errores con mensajes claros por `std::cerr`.
-- Código pensado para integrarse fácilmente en proyectos existentes (ROS2, robótica, automatización, etc.).
+- Uso de **epoll** para lectura eficiente y no bloqueante.
+- Manejo básico de errores mediante mensajes claros a `std::cerr`.
+- Código fácil de integrar en proyectos de:
+  - Robótica
+  - Automoción
+  - Automatización industrial
+  - ROS/ROS2 y otros frameworks
+
+---
 
 ## Requisitos
 
-- Linux con soporte **SocketCAN**.
-- Kernel con módulos CAN activados (`can`, `can_raw`, drivers específicos).
-- Compilador C++ compatible (por ejemplo, `g++` >= 7).
-- CMake (opcional, si usas el sistema de construcción propuesto).
+- Sistema operativo **Linux** con soporte **SocketCAN**.
+- Kernel Linux con módulos CAN activados (`can`, `can_raw`, y el driver de tu dispositivo CAN).
+- Compilador C++ compatible (`g++` >= 7 recomendado).
+- **CMake** (si usas el sistema de build sugerido).
 
-Para probar en local puedes usar, por ejemplo:
+Para pruebas sin hardware real, puedes usar una interfaz virtual `vcan`.
+
+---
+
+## Estructura típica del proyecto
+
+Ejemplo de estructura:
+
+```text
+.
+├── CMakeLists.txt
+├── include/
+│   └── socket_can_interface.hpp
+├── src/
+│   └── socket_can_interface.cpp
+├── examples/
+│   ├── can_read_example.cpp
+│   └── can_write_example.cpp
+└── LICENSE
+```
+
+*(Ajusta los nombres de archivos y directorios según tu repositorio real.)*
+
+---
+
+## Instalación (con CMake)
+
+Desde la raíz del proyecto:
+
+```bash
+mkdir build && cd build
+cmake ..
+make
+sudo make install
+```
+
+Esto suele instalar:
+
+- La librería (por ejemplo `liblinux_can_cpp.so`) en `/usr/local/lib`.
+- Los headers en `/usr/local/include`.
+
+> Asegúrate de que tu `CMakeLists.txt` instale correctamente la librería y los headers con los nombres que prefieras.
+
+---
+
+## Configuración de la interfaz CAN en Linux
+
+La librería utiliza SocketCAN. Necesitas que la interfaz CAN esté configurada y levantada.
+
+### 1. Interfaz CAN real (USB‑CAN, PCI‑CAN, etc.)
+
+Suponiendo que tu adaptador se ve como `can0`:
+
+```bash
+# Configurar bitrate a 1 Mbps
+sudo ip link set can0 type can bitrate 1000000
+
+# Levantar la interfaz
+sudo ip link set up can0
+
+# Comprobar el estado
+ip link show can0
+```
+
+### 2. Interfaz virtual para pruebas (`vcan`)
+
+Si no tienes hardware, puedes crear una interfaz virtual:
 
 ```bash
 sudo modprobe vcan
 sudo ip link add dev vcan0 type vcan
 sudo ip link set up vcan0
+
+ip link show vcan0
 ```
 
-Y usar vcan0 como interfaz CAN virtual.
+Después podrás usar `vcan0` con la librería como si fuera una interfaz CAN real.
 
-Instalación (con CMake)
+---
 
-Suponiendo que el proyecto tiene esta estructura:
+## Nombre fijo de interfaz y configuración automática con udev (USB‑CAN)
 
-text
+Si usas un adaptador USB‑CAN, a veces el nombre de la interfaz (`can0`, `can1`, etc.) puede cambiar dependiendo del orden de conexión.  
+Para tener siempre el mismo nombre (por ejemplo `can_steer_drv`) y configurar automáticamente bitrate y estado, puedes usar una regla **udev**.
 
-Copy
-.
-├── CMakeLists.txt
-├── include/
-│   └── socket_can_interface.hpp
-└── src/
-    └── socket_can_interface.cpp
+### Script de ejemplo para crear la regla udev
 
-Construcción e instalación
+```bash
+#!/bin/bash
 
-bash
+# Script para crear una regla de udev para un adaptador USB-CAN
+echo "Este script creará una regla udev para asignar un nombre personalizado a tu adaptador USB-CAN."
+echo "Primero, veamos los mensajes del sistema para identificar tu adaptador:"
+echo "-------------------------------------------------------------------"
+dmesg | grep -i "usb\\|can"
+echo "-------------------------------------------------------------------"
+echo
+echo "↑ Busca en la salida anterior una línea que contenga 'SerialNumber:' o similar"
+echo
+echo "Introduce el número de serie (por ejemplo, HW033197):"
+read HWSERIAL
 
-Copy
-mkdir build && cd build
-cmake ..
-make
-sudo make install
+INTERFACE_NAME="can_steer_drv"
+BITRATE="1000000"
 
-Esto instalará:
+# Crear la regla udev
+RULE1="SUBSYSTEM==\"net\", ACTION==\"add\", ATTRS{serial}==\"$HWSERIAL\", NAME=\"$INTERFACE_NAME\", RUN+=\"/bin/sh -c 'sleep 1 && /sbin/ip link set $INTERFACE_NAME type can bitrate $BITRATE && /sbin/ip link set up $INTERFACE_NAME'\""
 
-    La librería (por ejemplo, liblinux_can_cpp.so) en /usr/local/lib (o equivalente según tu sistema).
-    Los headers en /usr/local/include.
+echo -e "\nLa siguiente regla será añadida a /etc/udev/rules.d/81-can-usb.rules:"
+echo "$RULE1"
 
-    Ajusta nombres y CMakeLists.txt según cómo finalmente llames al target de la librería.
+# Solicitar confirmación
+read -p "¿Deseas continuar? (s/n): " CONFIRM
+if [[ "$CONFIRM" != "s" && "$CONFIRM" != "S" ]]; then
+    echo "Cancelado."
+    exit 1
+fi
 
-Uso básico
-API principal
+# Escribir la regla
+echo "$RULE1" | sudo tee /etc/udev/rules.d/81-can-usb.rules
 
-La clase central es SocketCANInterface:
+# Recargar las reglas de udev
+sudo udevadm control --reload-rules
+echo -e "\nRegla añadida y udev recargado."
+echo "Para aplicar los cambios:"
+echo "1. Desconecta el adaptador USB-CAN"
+echo "2. Vuelve a conectarlo"
+echo "3. Verifica el nombre con: ip link show $INTERFACE_NAME"
+```
 
-cpp
+Una vez creada la regla:
 
-Copy
+- Cada vez que conectes el adaptador USB‑CAN:
+  - Se creará la interfaz con el nombre fijo (por ejemplo `can_steer_drv`).
+  - Se configurará automáticamente el bitrate.
+  - La interfaz se levantará sola.
+- Podrás usar ese nombre fijo en la librería:
+
+```cpp
+SocketCANInterface can("can_steer_drv");
+can.init();
+```
+
+---
+
+## Uso de la librería
+
+### API principal
+
+La clase central es `SocketCANInterface`:
+
+```cpp
 class SocketCANInterface {
 public:
   SocketCANInterface(const std::string& interface_name);
@@ -87,12 +200,11 @@ public:
 
   bool isInitialized() const;
 };
+```
 
-Ejemplo: recibir mensajes
+### Ejemplo: leer tramas CAN
 
-cpp
-
-Copy
+```cpp
 #include <iostream>
 #include <iomanip>
 #include <vector>
@@ -144,12 +256,11 @@ int main(int argc, char** argv) {
     can.close();
     return 0;
 }
+```
 
-Ejemplo: enviar un mensaje
+### Ejemplo: enviar una trama CAN
 
-cpp
-
-Copy
+```cpp
 #include <iostream>
 #include <cstring>
 #include <linux/can.h>
@@ -188,258 +299,63 @@ int main(int argc, char** argv) {
     can.close();
     return 0;
 }
+```
 
-Compilación de un programa de ejemplo
-Con g++ directamente
+---
 
-bash
+## Compilar un programa que use la librería
 
-Copy
+### Con `g++` directamente
+
+Ejemplo (ajusta el nombre de la librería según tu configuración real):
+
+```bash
 g++ -std=c++14 -o can_reader \
-    examples/can_reader.cpp \
+    examples/can_read_example.cpp \
     -I/usr/local/include \
     -L/usr/local/lib -llinux_can_cpp
+```
 
-Asegúrate de usar el nombre real de la librería (por ejemplo -lcanxx, -llinux_can_cpp, etc., según cómo la hayas configurado en tu CMakeLists.txt).
-Con CMake (recomendado)
+- `-I/usr/local/include` debe apuntar al directorio donde se instaló `socket_can_interface.hpp`.
+- `-llinux_can_cpp` debe ser el nombre real del `.so` (por ejemplo `-lcanxx`, `-llinux_can_cpp`, etc.).
 
-Si has instalado la librería con un paquete CMake (find_package), tu CMakeLists.txt para una app podría ser:
+### Con CMake (recomendado)
 
-cmake
+Si exportas un paquete CMake, tu `CMakeLists.txt` para una aplicación podría ser algo así:
 
-Copy
+```cmake
 cmake_minimum_required(VERSION 3.10)
 project(can_app LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(LinuxCanCpp REQUIRED) # o el nombre que definas
+find_package(LinuxCANCpp REQUIRED) # Nombre del paquete que definas
 
 add_executable(can_reader main.cpp)
-target_link_libraries(can_reader PRIVATE LinuxCanCpp::LinuxCanCpp)
+target_link_libraries(can_reader PRIVATE LinuxCANCpp::LinuxCANCpp)
+```
 
-    Ajusta LinuxCanCpp al nombre real de tu paquete CMake (por ejemplo LinuxCanCpp, LinuxCan, canxx, etc.).
-
-Buenas prácticas y mejoras posibles
-
-    Añadir filtros CAN (struct can_filter) configurables vía métodos públicos.
-    Exponer estadísticas (nº de frames enviados/recibidos, nº de errores).
-    Sustituir std::cerr por un sistema de logging configurable.
-    Añadir soporte opcional para CAN FD.
-    Añadir namespaces (por ejemplo, namespace lincan { ... }) para evitar colisiones de nombres.
-
-Licencia
-
-Indica aquí la licencia de tu elección, por ejemplo:
-
-    MIT
-    BSD-3-Clause
-    Apache-2.0
-
-text
-
-Copy
-Copyright (c) 2025 <Tu Nombre>
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-...
-
-Si me dices cómo vas a llamar exactamente al target de la librería en CMake (por ejemplo, linux_can_cpp, canxx, etc.), puedo ajustarte el README y los comandos de compilación para que encajen 100% con tu proyecto real.
-
-Te propongo tres cosas:
-
-1. Texto para añadir al README explicando cómo activar/configurar una interfaz CAN en Linux (con ejemplo de script).
-2. Una pequeña mejora a tu script/explicación actual.
-3. Sugerencia de licencia con atribución obligatoria incluso en uso privado: **Creative Commons Attribution 4.0 (CC BY 4.0)** o, si quieres una licencia más de “software”: **Elastic License 2.0 (ELv2)**. Te doy ejemplo con CC BY 4.0 que es más simple de entender.
+> Cambia `LinuxCANCpp` por el nombre del target/paquete que definas en tu propia configuración CMake.
 
 ---
 
-### 1. Sección sugerida para el README: cómo activar una interfaz CAN en Linux
-
-Podrías añadir algo así al README de *Linux CAN C++ Library*:
-
-```markdown
-## Configuración de una interfaz CAN en Linux
-
-La librería utiliza SocketCAN, por lo que necesita que la interfaz CAN (por ejemplo `can0`) esté correctamente configurada en el sistema operativo.
-
-### Ejemplo simple con interfaz real (USB-CAN, PCI-CAN, etc.)
-
-Suponiendo que tu adaptador se detecta como `can0`:
-
-```bash
-# Ajusta el bitrate a 1 Mbps y levanta la interfaz
-sudo ip link set can0 type can bitrate 1000000
-sudo ip link set up can0
-
-# Comprobar el estado
-ip link show can0
-```
-
-### Interfaz virtual para pruebas (vcan)
-
-Si no tienes hardware, puedes usar una interfaz virtual:
-
-```bash
-sudo modprobe vcan
-sudo ip link add dev vcan0 type vcan
-sudo ip link set up vcan0
-
-ip link show vcan0
-```
-
-### Asignar nombre fijo y configuración automática con udev (ejemplo USB‑CAN)
-
-Para evitar que el nombre de la interfaz cambie (por ejemplo `can0`, `can1` según el orden de conexión), puedes crear una regla `udev` que:
-
-- Asigne un nombre fijo (por ejemplo `can_steer_drv`).
-- Configure automáticamente bitrate y levante la interfaz al conectar el USB-CAN.
-
-Ejemplo de script para crear la regla:
-
-```bash
-#!/bin/bash
-
-# Script para crear una regla de udev para un adaptador USB-CAN
-echo "Este script creará una regla udev para asignar un nombre personalizado a tu adaptador USB-CAN."
-echo "Primero, veamos los mensajes del sistema para identificar tu adaptador:"
-echo "-------------------------------------------------------------------"
-dmesg | grep -i "usb\\|can"
-echo "-------------------------------------------------------------------"
-echo
-echo "↑ Busca en la salida anterior una línea que contenga 'SerialNumber:' o similar"
-echo
-echo "Introduce el número de serie (por ejemplo, HW033197):"
-read HWSERIAL
-
-INTERFACE_NAME="can_steer_drv"
-BITRATE="1000000"
-
-# Crear la regla udev
-RULE1="SUBSYSTEM==\"net\", ACTION==\"add\", ATTRS{serial}==\"$HWSERIAL\", NAME=\"$INTERFACE_NAME\", RUN+=\"/bin/sh -c 'sleep 1 && /sbin/ip link set $INTERFACE_NAME type can bitrate $BITRATE && /sbin/ip link set up $INTERFACE_NAME'\""
-
-echo -e "\nLa siguiente regla será añadida a /etc/udev/rules.d/81-can-usb.rules:"
-echo "$RULE1"
-
-read -p "¿Deseas continuar? (s/n): " CONFIRM
-if [[ \"$CONFIRM\" != \"s\" && \"$CONFIRM\" != \"S\" ]]; then
-    echo "Cancelado."
-    exit 1
-fi
-
-# Escribe la regla
-echo "$RULE1" | sudo tee /etc/udev/rules.d/81-can-usb.rules
-
-# Recarga las reglas de udev
-sudo udevadm control --reload-rules
-
-echo -e "\nRegla añadida y udev recargado."
-echo "Para aplicar los cambios:"
-echo "1. Desconecta el adaptador USB-CAN"
-echo "2. Vuelve a conectarlo"
-echo "3. Verifica el nombre con: ip link show $INTERFACE_NAME"
-```
-
-> Ajusta `INTERFACE_NAME` y `BITRATE` según tu hardware y necesidades.
-
-Una vez creada la regla, cada vez que conectes el adaptador USB-CAN:
-- Se creará la interfaz con el nombre fijo (por ejemplo `can_steer_drv`).
-- Se configurará automáticamente el bitrate y se levantará la interfaz.
-- Podrás usar la librería con ese nombre fijo:
-  ```cpp
-  LinuxCANInterface can("can_steer_drv");
-  can.init();
-  ```
-```
-
-Puedes cambiar `LinuxCANInterface` por el nombre real de tu clase si la renombras.
-
----
-
-### 2. Pequeñas mejoras al script que ya tienes
-
-Tu script está bien; sugerencias mínimas:
-
-- Permitir `S` además de `s` para confirmar.
-- Parametrizar también el bitrate.
-- Escapar bien los `\` en la documentación (en README) para que no se traguen por el Markdown.
-
-Versión ligeramente mejorada (ya incluida en el bloque anterior):
-
-```bash
-BITRATE="1000000"
-...
-RULE1="SUBSYSTEM==\"net\", ACTION==\"add\", ATTRS{serial}==\"$HWSERIAL\", NAME=\"$INTERFACE_NAME\", RUN+=\"/bin/sh -c 'sleep 1 && /sbin/ip link set $INTERFACE_NAME type can bitrate $BITRATE && /sbin/ip link set up $INTERFACE_NAME'\""
-
-...
-
-if [[ "$CONFIRM" != "s" && "$CONFIRM" != "S" ]]; then
-    echo "Cancelado."
-    exit 1
-fi
-```
-
----
-
-### 3. Licencia con uso open‑source y atribución obligatoria también en privado
-
-Si quieres que:
-
-- Se pueda usar en proyectos open‑source y cerrados (privados).
-- Pero **SIEMPRE** con obligación de atribución (crédito a tu proyecto), incluso en uso privado.
-
-Una opción sencilla y conocida es:
-
-#### Opción recomendada: **Creative Commons Attribution 4.0 (CC BY 4.0)**
-
-- Permite uso comercial y no comercial, redistribución, modificación, etc.
-- Obliga SIEMPRE a dar **crédito al autor/origen**.
-- Es muy clara y estándar respecto a la parte de atribución.
-- Aunque CC se usa más para documentación, también se puede aplicar a código (más puristas suelen preferir licencias tipo MIT/BSD, pero no obligan a atribución en uso privado, solo en redistribución).
-
-Un texto simple de licencia en tu `LICENSE` podría ser:
-
-```text
-Linux CAN C++ Library
-Copyright (c) 2025, Tu Nombre o Tu Organización
-
-This work is licensed under the Creative Commons Attribution 4.0 International License.
-To view a copy of this license, visit
-
-    https://creativecommons.org/licenses/by/4.0/
-
-You are free to:
-- Share: copy and redistribute the material in any medium or format.
-- Adapt: remix, transform, and build upon the material for any purpose, even commercially.
-
-Under the following terms:
-- Attribution: You must give appropriate credit, provide a link to the license,
-  and indicate if changes were made. You may do so in any reasonable manner,
-  but not in any way that suggests the licensor endorses you or your use.
-
-No additional restrictions:
-- You may not apply legal terms or technological measures that legally restrict others
-  from doing anything the license permits.
-```
-
-Y en el README, una sección de licencia como:
-
-```markdown
 ## Licencia
+
+**Linux CAN C++ Library**  
+Copyright (c) 2025,  
+**Rafael Carbonell Lázaro (racarla96)**
 
 Este proyecto se distribuye bajo la licencia **Creative Commons Attribution 4.0 International (CC BY 4.0)**.
 
 En resumen:
 
 - Puedes usar, modificar y redistribuir la librería, incluso en proyectos comerciales o privados.
-- Es obligatorio mantener **atribución** al autor/proyecto (por ejemplo, en la documentación, about box, créditos o similar).
-- No puedes imponer restricciones adicionales más allá de las de la licencia.
+- Es obligatorio mantener **atribución** al autor/proyecto  
+  (por ejemplo, en la documentación, créditos, “About” de la aplicación, etc.).
+- No puedes imponer restricciones adicionales que impidan a otros ejercer los permisos que otorga la licencia.
 
-Texto legal completo: [https://creativecommons.org/licenses/by/4.0/](https://creativecommons.org/licenses/by/4.0/).
-```
+Texto legal completo:  
+[https://creativecommons.org/licenses/by/4.0/legalcode](https://creativecommons.org/licenses/by/4.0/legalcode)
 
-Si prefieres algo más “estilo software” pero con cláusula de atribución más fuerte, se puede redactar una licencia personalizada inspirada en MIT o BSD donde se exija atribución visible también en uso interno/privado. Si quieres eso, dime si prefieres:
-
-- Español o inglés para el texto legal.
-- “Atribución mínima” (por ejemplo, solo en documentación y about) o algo más estricto.
+---
